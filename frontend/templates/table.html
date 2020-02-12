@@ -1,0 +1,58 @@
+{% extends 'base.jinja2' %}
+
+{% block content %}
+<div class='container-fluid'>
+<h3 align='center'>Ranking table</h3>
+
+<table class="table">
+
+   <tr>
+     <th scope="col">Team Name</th>
+     <th scope="col">accuracy</th>
+     <th scope="col">precision</th>
+     <th scope="col">recall</th>
+     <th scope="col">runtime</th>
+     <th scope="col">image updated at</th>
+     <th scope="col">in schedule</th>
+     <th scope="col">scenes done</th>
+     <th scope="col">last run at</th>
+   </tr>
+
+   {% for key,value in post.items() %}
+   <tr>
+      <td scope="row">{{ value['name'] }}</td>
+      <td scope="row">{{ (value.get('accuracy',0))|float|round(4)}}</td>
+      <td scope="row">{{ (value.get('precision', 0))|float|round(4)|default("")}}</td>
+      <td scope="row">{{ (value.get('recall', 0))|float|round(4)|default("")}}</td>
+      <td scope="row">{{ value.get('runtime', "") }}</td>
+      <td scope="row" style="color: #d1d1d1;">{{ value.get('time_tag', "") }}</td>
+      <td scope="row">{{ value['updated'] }}</td>
+      <td scope="row">{{ value.get('computed_scenes', "")}}</td>
+      <td scope="row">{{ value.get('last_run', "")}}</td>
+
+   </tr>
+  {% endfor %}
+
+</table>
+<br>
+
+<table class="table table-sm">
+  <tr>
+    <thead class="thead-dark">
+    <th scope="col">Next in schedule</th>
+    <th scope="col">Estimated time to run (UTC) </th>
+    <th scope="col">Status</th>
+    </thead>
+  </tr>
+{% for t in team %}
+  {% for key, value in t.items() %}
+  <tr>
+    <td> {{ key}}</td>
+    <td>{{ value.get('eta', "") }}</td>
+    <td>{{ value.get('status', "") }}</td>
+  </tr>
+  {% endfor %}
+{% endfor %}
+</table>
+</div>
+{% endblock %}

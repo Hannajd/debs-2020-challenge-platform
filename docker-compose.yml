@@ -1,0 +1,54 @@
+version: "3"
+services:
+  db:
+    container_name: db_server
+    image: mysql:latest
+    restart: always
+    volumes:
+      - ./dbs:/var/lib/mysql/
+      #- ./mysqldata:/var/lib/mysql:rw,delegated
+    env_file:
+      - .env
+    ports:
+      - 3306
+    # healthcheck:
+    #   test: ["CMD", "mysqladmin", "ping", "-h", "db:3306"]
+    #   timeout: 5s
+    #   retries: 5
+
+
+  scheduler:
+    container_name: scheduler
+    build:
+      context: ./scheduler
+      dockerfile: Dockerfile.scheduler
+    env_file:
+      - .env
+    depends_on:
+      - db
+    links:
+      - db
+    volumes:
+      - ./scheduler/scheduler_logs:/app/scheduler_logs
+
+  frontend:
+    container_name: frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    env_file:
+      - .env
+    depends_on:
+      - db
+    links:
+      - db
+    ports:
+      - 8080:8080
+    volumes:
+      - ./frontend/frontend_logs:/app/frontend_logs
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      SCHEDULER_IP: scheduler
+
+networks:
+    bench: {}

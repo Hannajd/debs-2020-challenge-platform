@@ -1,0 +1,21 @@
+{% extends 'base.jinja2' %}
+
+{% block content %}
+<div class="container" style="padding-top: 120px;" align="center">
+    <div class="row">
+        <div class="col-md-10">
+            <button onclick="location.href='{{ url_for( 'add_teams' ) }}';"
+            type="button" class="btn btn-success btn-lg" data-toggle="button" aria-pressed="false" autocomplete="off"
+            style="background-color: #8ab92d;">
+              Add new team
+            </button>
+            <button onclick="location.href='{{ url_for( 'index' ) }}';"
+            type="button" class="btn btn-success btn-lg" data-toggle="button" aria-pressed="false" autocomplete="off"
+            style="background-color: #8ab92d;" >
+              I'm ready
+            </button>
+
+        </div>
+    </div>
+</div>
+{% endblock %}
