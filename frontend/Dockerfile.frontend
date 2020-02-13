@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir requests dataset pymysql cryptography sqlalchemy 
 RUN pip install --no-cache-dir gunicorn flask_jwt_extended
 
 RUN apt-get update && apt-get install apt-transport-https \
-    ca-certificates \
+    ca-certificates vim \
     curl \
     gnupg-agent \
     software-properties-common -y
