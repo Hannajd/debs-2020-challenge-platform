@@ -1,4 +1,4 @@
-from database_access_object import Database, connect_to_db
+from database_access_object import Teams, connect_to_db
 import subprocess
 import json
 

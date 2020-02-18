@@ -12,3 +12,4 @@ container-manager/
 Dockerfile.client
 frontend/frontend_logs
 scheduler/scheduler_logs
+.vscode

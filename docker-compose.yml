@@ -8,7 +8,7 @@ services:
       - ./dbs:/var/lib/mysql/
       #- ./mysqldata:/var/lib/mysql:rw,delegated
     env_file:
-      - .env
+      - container-config.env    
     ports:
       - 3306
     # healthcheck:
@@ -23,13 +23,13 @@ services:
       context: ./scheduler
       dockerfile: Dockerfile.scheduler
     env_file:
-      - .env
+      - container-config.env
     depends_on:
       - db
     links:
       - db
     volumes:
-      - ./scheduler/scheduler_logs:/app/scheduler_logs
+      - ./scheduler/logs:/app/scheduler_logs
 
   frontend:
     container_name: frontend
@@ -37,7 +37,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile.frontend
     env_file:
-      - .env
+      - container-config.env
     depends_on:
       - db
     links:
@@ -45,7 +45,7 @@ services:
     ports:
       - 8080:8080
     volumes:
-      - ./frontend/frontend_logs:/app/frontend_logs
+      - ./frontend/logs:/app/frontend_logs
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       SCHEDULER_IP: scheduler

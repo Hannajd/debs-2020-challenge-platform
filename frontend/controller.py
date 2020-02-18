@@ -15,61 +15,59 @@ from flask_jwt_extended import (
 )
 
 from security import authenticate, find_container_ip_addr
-from database_access_object import Database
+from database_access_object import Teams
 
 # --- APP ---
 app = Flask(__name__)
-# app.secret_key = 'super-secret'
 app.config['SECRET_KEY'] = os.getenv("SECRET_APP_KEY")
-# app.config['JWT_TOKEN_LOCATION'] = ['json']
 jwt = JWTManager(app)
-# ------
 
+# Init logging
 LOG_FOLDER_NAME = "frontend_logs"
-if not os.path.exists(LOG_FOLDER_NAME):
-    os.makedirs(LOG_FOLDER_NAME)
-filename = 'controller.log'
+LOG_FILENAME = 'controller.log'
+os.makedirs(LOG_FOLDER_NAME, exist_ok=True)
 logger = logging.getLogger()
 logging.basicConfig(
                     level=logging.DEBUG,
                     format='%(asctime)s - %(name)s - %(threadName)s -  %(levelname)s - %(message)s',
                     handlers=[
-                     logging.FileHandler("%s/%s" % (LOG_FOLDER_NAME, filename)),
-                     #logging.StreamHandler()
+                     logging.FileHandler("%s/%s" % (LOG_FOLDER_NAME, LOG_FILENAME)),
+                     logging.StreamHandler()
                     ])
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(threadName)s -  %(levelname)s - %(message)s')
-stream_handler = logging.StreamHandler()
-stream_handler.setLevel(logging.INFO)
-stream_handler.setFormatter(formatter)
-logger.addHandler(stream_handler)
 
-# --- constants ---
+# Init state
 DELTA = datetime.timedelta(minutes=10) # average waiting time initial
 CYCLE_TIME = datetime.timedelta(minutes=10)
 UPDATE_TIME = datetime.datetime.utcnow()
 
-skip_columns = ['team_image_name']
-# --- Allowed HOSTS (scheduler container will be detected at runtime)
-remote_manager = os.getenv("REMOTE_MANAGER_SERVER").split(",")
-allowed_hosts = remote_manager
-# --- find scheduler ---
-scheduler_ip = find_container_ip_addr(os.getenv("SCHEDULER_IP"))
-allowed_hosts.append(scheduler_ip)
-logging.debug("Allowed hosts are: %s" % allowed_hosts)
+SKIP_COLUMNS = ['team_image_name'] #TODO
+MANAGER_URI = os.getenv("REMOTE_MANAGER_SERVER").split(",")
+SCHEDULER_URI = find_container_ip_addr(os.getenv("SCHEDULER_IP"))
+ALLOWED_HOSTS = [MANAGER_URI, SCHEDULER_URI]
+logging.debug("Allowed hosts are: %s", ALLOWED_HOSTS)
 
-team_status = {}
+# The table storing the info for each team, including image, latest scores, etc
+TEAMS_DAO = Teams('teams')
+
+# Dictionary of team_image_name -> status
+# Describing the status of each image in the system
+# team_image_name = image = string in the form "username/image_name" at DockerHub
+TEAM_STATUS = {} 
+
 # --- helper functions ---
 def update_waiting_time(seconds):
+    #TODO
     global DELTA
     if seconds >= 60:  # minimum waiting time in minutes
         DELTA = datetime.timedelta(minutes=seconds/60)
 
 
 def filter(row):
+    #TODO
     # specify in @skip_columns which columns not to be shown
     new_row = {}
     for k, v in row.items():
-        if k in skip_columns:
+        if k in SKIP_COLUMNS:
             continue
         elif k == 'last_run':
             if v:
@@ -81,7 +79,6 @@ def filter(row):
 
 
 def generate_ranking_table(result, last_run, time_to_wait):
-    global DELTA, CYCLE_TIME, UPDATE_TIME
     ranking = {}
     queue = []
     time = 0
@@ -103,7 +100,7 @@ def generate_ranking_table(result, last_run, time_to_wait):
         team_name = row.get('team_image_name', None)
         current_status = ""
         if team_name:
-            current_status = team_status.get(team_name, "")
+            current_status = TEAM_STATUS.get(team_name, "")
         if row.get('updated', None)  == "True":
             if time:
                queue.append({row['name']: {
@@ -127,24 +124,25 @@ def unconvert_time(s):
 # --- ROUTES ----
 @app.route('/result', methods=['POST'])
 def post_result():
-    if (request.remote_addr in allowed_hosts) or request.remote_addr.startswith( '172', 0, 4 ):
+    #TODO: Update
+    if (request.remote_addr in ALLOWED_HOSTS) or request.remote_addr.startswith( '172', 0, 4 ):
         data = request.json
         team = data.get('team_image_name')
-        team_in_schedule = team_status.get(team, None)
+        team_in_schedule = TEAM_STATUS.get(team, None)
         if team_in_schedule:
-            team_status[team_in_schedule] = ""
+            TEAM_STATUS[team_in_schedule] = ""
 
         logging.info("received new result: %s" % data)
         sys.stdout.flush()
-        accuracy = data.get('accuracy')
-        if not accuracy:
-            return jsonify({"message":"Bad request"}), 400
+        # accuracy = data.get('accuracy')
+        # if not accuracy:
+        #     return jsonify({"message":"Bad request"}), 400
         global CYCLE_TIME
         loop_time = data.get('piggybacked_manager_timeout', CYCLE_TIME)
         CYCLE_TIME = datetime.timedelta(seconds=loop_time)
         # update database
         # set all to False
-        db.update_result(data)
+        TEAMS_DAO.update_result(data)
         return json.dumps(request.json), 200
     else:
         logging.warning(" %s is allowed NOT to post results" % request.remote_addr)
@@ -155,7 +153,7 @@ def post_result():
 def index():
     logging.debug("INDEX route requested by IP address: %s " % request.remote_addr)
 
-    query, last_experiment_time, waiting_time = db.get_ranking()
+    query, last_experiment_time, waiting_time = TEAMS_DAO.get_ranking()
     # logging.debug("Query: %s, last_experiment_time: %s, wait: %s" % (query, last_experiment_time, waiting_time))
     ranking, queue = generate_ranking_table(query, last_experiment_time, waiting_time)
     # logging.debug("Rankng: %s, Queue: %s" % (ranking,queue))
@@ -164,15 +162,15 @@ def index():
 @app.route('/status_update', methods=['GET', 'POST'])
 def status():
     STATUS_FIELD = 'status_update'
-    if (request.remote_addr in allowed_hosts) or request.remote_addr.startswith( '172', 0, 4):
+    if (request.remote_addr in ALLOWED_HOSTS) or request.remote_addr.startswith( '172', 0, 4):
         if request.method == 'GET':
             # testing
-            return jsonify(team_status), 200
+            return jsonify(TEAM_STATUS), 200
         if request.method == 'POST':
             data = request.json
             for team, status in data.items():
-                team_status[team] = status
-            return jsonify(team_status), 200
+                TEAM_STATUS[team] = status
+            return jsonify(TEAM_STATUS), 200
             # status = data.get(STATUS_FIELD)
             # team = data.get('team_image_name')
             # logging.info("got %s %s" % (team, status))
@@ -216,7 +214,7 @@ def add_teams():
             except IndexError:
                 return {"message": "Image name specified incorrectly"}, 500
             #session['access_token'] = ""
-            db.add_team(team, image, updated)
+            TEAMS_DAO.add_team(team, image, updated)
             logging.info("Added team %s with image %s and status: %s" % (team, image, updated))
             UPDATE_TIME = datetime.datetime.utcnow()
             #response.json = jsonify({"Updated": {team:image +" "+ str(updated)}})
@@ -254,15 +252,15 @@ def login():
 @app.route('/schedule', methods=['POST'])
 def post_schedule():
 
-    if (request.remote_addr in allowed_hosts) or request.remote_addr.startswith( '172', 0, 4 ):
-        logging.debug(" %s is allowed to post schedule" % request.remote_addr)
+    if (request.remote_addr in ALLOWED_HOSTS) or request.remote_addr.startswith( '172', 0, 4 ):
+        logging.debug("%s is allowed to post schedule", request.remote_addr)
         data = request.json
         logging.info("Received updated schedule")
         logging.debug("received data: %s" % data)
         if not data:
             return jsonify({"message":"Bad request"}), 400
         for image, timestamp in data.items():
-            db.update_image(image, timestamp)
+            TEAMS_DAO.update_image(image, timestamp)
             logging.debug("image entry %s updated at:  %s" % (image, timestamp))
 
         return json.dumps(request.json), 200
@@ -275,9 +273,9 @@ def post_schedule():
 def get_teams():
     # logging.info("IP address: %s " % request.remote_addr)
     # sys.stdout.flush()
-    if (request.remote_addr in allowed_hosts) or request.remote_addr.startswith( '172', 0, 4 ):
+    if (request.remote_addr in ALLOWED_HOSTS) or request.remote_addr.startswith( '172', 0, 4 ):
         sys.stdout.flush()
-        images = db.find_images()
+        images = TEAMS_DAO.find_images()
         logging.info("sending schedule %s to component: %s" % (images, request.remote_addr))
         return json.dumps(images)
     else:
@@ -285,8 +283,6 @@ def get_teams():
         return abort(403)
 
 
-# --- DB Access ---
-db = Database('teams')
 
 @app.before_request
 def make_session_permanent():
