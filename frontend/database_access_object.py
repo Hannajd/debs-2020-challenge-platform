@@ -7,13 +7,13 @@ import datetime
 import subprocess
 
 # scheduler service name for restarting upon new entry
-SCHEDULER ="scheduler"
+SCHEDULER_SERVICE_NAME = "scheduler"
+
 def restart_scheduler(container_name):
     subprocess.check_output(['docker', 'restart', container_name])
 
 # generic root connection. To be used separately elsewhere
 def connect_to_db(table, access='user'):
-
     if 'MYSQL_ROOT_PASSWORD' in os.environ:
         host = os.getenv('MYSQL_HOST')
         port = os.getenv('MYSQL_PORT')
@@ -24,7 +24,6 @@ def connect_to_db(table, access='user'):
             user = os.getenv('MYSQL_USER')
             password = os.getenv('MYSQL_PASSWORD')
         path = 'mysql://'+ user +':'+ password + '@'+ host +':' + str(port) + '/' + table
-        # print(path)
         return dataset.connect(path)
     else:
         raise ValueError('MySQL Environment Variables not set!')
@@ -38,6 +37,7 @@ class Teams:
       self.db = connect_to_db(table) 
 
     def add_team(self, name, image, status):
+        #FIXME
         # Note! upsert wont work with 'name' field
         table = self.db[self.table]
         row = table.find_one(name=name)
@@ -47,7 +47,7 @@ class Teams:
         else:
             # print("Entry is new")
             table.insert(dict(name=name, image=image, updated=status))
-            restart_scheduler(SCHEDULER)
+            restart_scheduler(SCHEDULER_SERVICE_NAME)
         sys.stdout.flush()
 
     def update_image(self, image_name, timestamp):
@@ -76,37 +76,45 @@ class Teams:
             ), ['image'])
             print("Result updated for image ", result['image'])
 
-
-    def find_images(self):
+    def get_image_statuses(self):
+        '''Return dictionary of image -> status (updated/old) for all images in DB
+        '''
         table = self.db[self.table]
         images = {}
-        for t in table.all():
-                # print("entry ", t)
-                if t['image']:
-                    try:
-                        docker_hub_link = t['image'].split('/')
-                        if t['updated'] == 'True':
-                            images[t['image']] = 'updated'
-                        else:
-                            images[t['image']] = 'old'
-                    except IndexError:
-                        print('Incorrectly specified image encountered. Format is {team_repo/team_image}')
-                        continue
+        for row in table.all():
+            image = row['image']
+            if image:
+                # Verify image format
+                try:
+                    image.split('/')
+                except IndexError:
+                    print('Igoring image with incorrect format: "%s". Format is {team_repo/team_image}.' % image)
+                    continue
+                # Populate dict
+                if row['updated'] == 'True':
+                    images[image] = 'updated'
                 else:
-                    print('Team has not submitted image yet')
+                    images[image] = 'old'
+            else:
+                print('Ignoring team "%s": no image specified' % row['name'])
         sys.stdout.flush()
         return images
 
     def get_ranking(self):
+        '''Return a tuple (table, last_experiment_time, waiting_time), 
+        where "table" is the team entries sorted on their score
+        '''
+        #TODO: Reimplement
+        return self.db[self.table].all(), "", 0
         table = self.db[self.table].all()
-
         if not list(table):
-            print("ERROR retrieving rankings! It this is the first run make sure that DB is initialized")
+            print("Failed to retrieve rankings! It this is the first run make sure that DB is initialized")
             return [], "", 0
         table = self.db[self.table].all()
         for team in table:
+            #FIXME
             try:
-                team['accuracy']
+                team['total_runtime']
             except KeyError:
                 return self.db[self.table].all(), "", 0
 
@@ -127,7 +135,6 @@ class Teams:
                 max_runtime = row['runtime']
 
             return ranking, last_experiment_time, max_runtime
-
         except (pymysql.ProgrammingError, pymysql.err.ProgrammingError):
             print("If this is the first run make sure that DB is initialized")
             return [], "", 0

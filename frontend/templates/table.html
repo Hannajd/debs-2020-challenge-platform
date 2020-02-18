@@ -8,26 +8,25 @@
 
    <tr>
      <th scope="col">Team Name</th>
-     <th scope="col">accuracy</th>
-     <th scope="col">precision</th>
-     <th scope="col">recall</th>
-     <th scope="col">runtime</th>
-     <th scope="col">image updated at</th>
-     <th scope="col">in schedule</th>
-     <th scope="col">scenes done</th>
-     <th scope="col">last run at</th>
+     <th scope="col">Total Runtime</th>
+     <th scope="col">Latency</th>
+     <th scope="col">Timeliness</th>
+     <th scope="col">Accuracy</th>
+     <th scope="col">Last Update</th>
+     <th scope="col">In Schedule</th>
+     <th scope="col">Last Run</th>
    </tr>
 
    {% for key,value in post.items() %}
    <tr>
       <td scope="row">{{ value['name'] }}</td>
-      <td scope="row">{{ (value.get('accuracy',0))|float|round(4)}}</td>
-      <td scope="row">{{ (value.get('precision', 0))|float|round(4)|default("")}}</td>
-      <td scope="row">{{ (value.get('recall', 0))|float|round(4)|default("")}}</td>
-      <td scope="row">{{ value.get('runtime', "") }}</td>
+      <td scope="row">{{ (value.get('total_runtime', 'NaN'))|float|round(4)}}</td>
+      <td scope="row">{{ (value.get('latency', 'NaN'))|float|round(4)}}</td>
+      <td scope="row">{{ (value.get('timeliness', 'NaN'))|float|round(4)}}</td>
+      <td scope="row">{{ (value.get('accuracy', 'NaN'))|float|round(4)}}</td>
+      <!-- <td scope="row">{{ (value.get('recall', 0))|float|round(4)|default("")}}</td> -->
       <td scope="row" style="color: #d1d1d1;">{{ value.get('time_tag', "") }}</td>
       <td scope="row">{{ value['updated'] }}</td>
-      <td scope="row">{{ value.get('computed_scenes', "")}}</td>
       <td scope="row">{{ value.get('last_run', "")}}</td>
 
    </tr>

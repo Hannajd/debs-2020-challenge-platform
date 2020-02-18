@@ -119,12 +119,10 @@ def post_result():
     if (request.remote_addr in ALLOWED_HOSTS) or request.remote_addr.startswith( '172', 0, 4 ):
         jsonData = request.json
         team = jsonData.get('image')
-        team_in_schedule = TEAM_STATUS.get(team, None)
-        if team_in_schedule:
-            TEAM_STATUS[team_in_schedule] = ""
+        if TEAM_STATUS.get(team, None):
+            TEAM_STATUS[team] = ""
 
-        logging.info("received new result: %s" % jsonData)
-        sys.stdout.flush()
+        logging.info("Received result: %s", jsonData)
         # accuracy = data.get('accuracy')
         # if not accuracy:
         #     return jsonify({"message":"Bad request"}), 400
@@ -267,7 +265,7 @@ def get_teams():
     # sys.stdout.flush()
     if (request.remote_addr in ALLOWED_HOSTS) or request.remote_addr.startswith( '172', 0, 4 ):
         sys.stdout.flush()
-        images = TEAMS_DAO.find_images()
+        images = TEAMS_DAO.get_image_statuses()
         logging.info("sending schedule %s to component: %s" % (images, request.remote_addr))
         return json.dumps(images)
     else:

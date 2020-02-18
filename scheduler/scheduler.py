@@ -125,7 +125,7 @@ if __name__ == '__main__':
             # wait_seconds = wait_lower_bound
 
         if updated_images:
-            logging.info("Scheduler sends updated images: " % updated_images)
+            logging.info("Scheduler sending updated images: %s", updated_images)
             send_schedule(updated_images)
             scheduler.updated_status = False
         else:
