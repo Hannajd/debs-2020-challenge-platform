@@ -40,7 +40,7 @@ DELTA = datetime.timedelta(minutes=10) # average waiting time initial
 CYCLE_TIME = datetime.timedelta(minutes=10)
 UPDATE_TIME = datetime.datetime.utcnow()
 
-SKIP_COLUMNS = ['team_image_name'] #TODO
+SKIP_COLUMNS = ['image'] #TODO
 MANAGER_URI = os.getenv("REMOTE_MANAGER_SERVER").split(",")
 SCHEDULER_URI = find_container_ip_addr(os.getenv("SCHEDULER_IP"))
 ALLOWED_HOSTS = [MANAGER_URI, SCHEDULER_URI]
@@ -49,33 +49,10 @@ logging.debug("Allowed hosts are: %s", ALLOWED_HOSTS)
 # The table storing the info for each team, including image, latest scores, etc
 TEAMS_DAO = Teams('teams')
 
-# Dictionary of team_image_name -> status
+# Dictionary of image -> status
 # Describing the status of each image in the system
-# team_image_name = image = string in the form "username/image_name" at DockerHub
+# image = string in the form "username/image_name" at DockerHub
 TEAM_STATUS = {} 
-
-# --- helper functions ---
-def update_waiting_time(seconds):
-    #TODO
-    global DELTA
-    if seconds >= 60:  # minimum waiting time in minutes
-        DELTA = datetime.timedelta(minutes=seconds/60)
-
-
-def filter(row):
-    #TODO
-    # specify in @skip_columns which columns not to be shown
-    new_row = {}
-    for k, v in row.items():
-        if k in SKIP_COLUMNS:
-            continue
-        elif k == 'last_run':
-            if v:
-                new_row[k] = datetime.datetime.strptime(v, '%Y-%m-%dT%H:%M:%S')
-        else:
-            new_row[k] = v
-    # print("new row: ", new_row)
-    return new_row
 
 
 def generate_ranking_table(result, last_run, time_to_wait):
@@ -94,23 +71,36 @@ def generate_ranking_table(result, last_run, time_to_wait):
         time = UPDATE_TIME + DELTA + CYCLE_TIME
     marked_to_run = 0
     time_to_wait = 0
-    for ix, row in enumerate(result):
-        # print("ROW: ", row)
-        ranking[ix+1] = filter(row)
-        team_name = row.get('team_image_name', None)
-        current_status = ""
-        if team_name:
-            current_status = TEAM_STATUS.get(team_name, "")
-        if row.get('updated', None)  == "True":
-            if time:
-               queue.append({row['name']: {
-                    "eta": unconvert_time(time + DELTA*(marked_to_run)),
-                    "status": current_status
-               }})
-               marked_to_run +=1
+    for rowIdx, row in enumerate(result):
+        ranking[rowIdx+1] = get_ranking_fields(row)
+        image = row.get('image', None)
+        current_status = TEAM_STATUS.get(image, "") if image else ""
+        if row.get('updated', None)  == "True" and time:
+            queue.append({row['name']: {
+                "eta": unconvert_time(time + DELTA*(marked_to_run)),
+                "status": current_status
+            }})
+            marked_to_run += 1
     sys.stdout.flush()
-    #print(ranking)
     return ranking, queue
+
+
+def get_ranking_fields(row):
+    new_row = {}
+    for column, value in row.items():
+        if column in SKIP_COLUMNS:
+            continue
+        elif column == 'last_run' and value:
+            new_row[column] = datetime.datetime.strptime(value, '%Y-%m-%dT%H:%M:%S')
+        else:
+            new_row[column] = value
+    return new_row
+
+
+def update_waiting_time(seconds):
+    global DELTA
+    if seconds >= 60:  # minimum waiting time in minutes
+        DELTA = datetime.timedelta(minutes=seconds/60)
 
 
 def round_time(tm):
@@ -121,32 +111,33 @@ def round_time(tm):
 def unconvert_time(s):
     return s.strftime("%Y-%m-%d %H:%M:%S")
 
+
 # --- ROUTES ----
 @app.route('/result', methods=['POST'])
 def post_result():
     #TODO: Update
     if (request.remote_addr in ALLOWED_HOSTS) or request.remote_addr.startswith( '172', 0, 4 ):
-        data = request.json
-        team = data.get('team_image_name')
+        jsonData = request.json
+        team = jsonData.get('image')
         team_in_schedule = TEAM_STATUS.get(team, None)
         if team_in_schedule:
             TEAM_STATUS[team_in_schedule] = ""
 
-        logging.info("received new result: %s" % data)
+        logging.info("received new result: %s" % jsonData)
         sys.stdout.flush()
         # accuracy = data.get('accuracy')
         # if not accuracy:
         #     return jsonify({"message":"Bad request"}), 400
         global CYCLE_TIME
-        loop_time = data.get('piggybacked_manager_timeout', CYCLE_TIME)
+        loop_time = jsonData.get('piggybacked_manager_timeout', CYCLE_TIME)
         CYCLE_TIME = datetime.timedelta(seconds=loop_time)
         # update database
         # set all to False
-        TEAMS_DAO.update_result(data)
-        return json.dumps(request.json), 200
+        TEAMS_DAO.update_result(jsonData)
+        return json.dumps(jsonData), 200
     else:
-        logging.warning(" %s is allowed NOT to post results" % request.remote_addr)
-        return {"message":"Host not allowed"}, 403
+        logging.warning("Host '%s' is NOT allowed to post results", request.remote_addr)
+        return {"message": "Host not allowed"}, 403
 
 
 @app.route('/', methods=['GET'])
@@ -158,6 +149,7 @@ def index():
     ranking, queue = generate_ranking_table(query, last_experiment_time, waiting_time)
     # logging.debug("Rankng: %s, Queue: %s" % (ranking,queue))
     return render_template('table.html', post=ranking, team=queue)
+
 
 @app.route('/status_update', methods=['GET', 'POST'])
 def status():
@@ -172,7 +164,7 @@ def status():
                 TEAM_STATUS[team] = status
             return jsonify(TEAM_STATUS), 200
             # status = data.get(STATUS_FIELD)
-            # team = data.get('team_image_name')
+            # team = data.get('image')
             # logging.info("got %s %s" % (team, status))
             # if team:
             #     team_status[team] = status
@@ -200,7 +192,7 @@ def add_teams():
             return render_template('team_form.html')
         if request.method == 'POST':
             team = request.values.get('name', None) # Your form's
-            image = request.values.get('team_image_name', None) # input names
+            image = request.values.get('image', None) # input names
             updated = request.values.get('updated')
             logging.info("Requested to add team %s with image %s and status: %s" % (team, image, updated))
             if not updated:
@@ -281,7 +273,6 @@ def get_teams():
     else:
         logging.warning(" %s is NOT allowed to request schedule" % request.remote_addr)
         return abort(403)
-
 
 
 @app.before_request

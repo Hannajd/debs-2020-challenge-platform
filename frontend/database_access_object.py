@@ -43,20 +43,20 @@ class Teams:
         row = table.find_one(name=name)
         if row:
             # print("Found entry", row)
-            table.update(dict(name=name, team_image_name=image, updated=status), ['name'])
+            table.update(dict(name=name, image=image, updated=status), ['name'])
         else:
             # print("Entry is new")
-            table.insert(dict(name=name, team_image_name=image, updated=status))
+            table.insert(dict(name=name, image=image, updated=status))
             restart_scheduler(SCHEDULER)
         sys.stdout.flush()
 
     def update_image(self, image_name, timestamp):
         table = self.db[self.table]
-        table.update(dict(team_image_name=image_name,  time_tag=timestamp, updated='True'), ['team_image_name'])
+        table.update(dict(image=image_name,  time_tag=timestamp, updated='True'), ['image'])
 
     def update_result(self, result):
             '''
-            team_image_name
+            image
             total_runtime
             latency
             accuracy
@@ -65,16 +65,16 @@ class Teams:
             last_run
             '''
             table = self.db[self.table]
-            table.update(dict(team_image_name=result['team_image_name'],
-                total_runtime = result['accuracy'],
-                latency = result['recall'],
-                accuracy = result['precision'],
-                timeliness = result['runtime'],
+            table.update(dict(image=result['image'],
+                total_runtime = result['total_runtime'],
+                latency = result['latency'],
+                accuracy = result['accuracy'],
+                timeliness = result['timeliness'],
                 tag=result['tag'],
                 last_run=result['last_run'],
                 updated='False',
-            ), ['team_image_name'])
-            print("Result updated for image ", result['team_image_name'])
+            ), ['image'])
+            print("Result updated for image ", result['image'])
 
 
     def find_images(self):
@@ -82,13 +82,13 @@ class Teams:
         images = {}
         for t in table.all():
                 # print("entry ", t)
-                if t['team_image_name']:
+                if t['image']:
                     try:
-                        docker_hub_link = t['team_image_name'].split('/')
+                        docker_hub_link = t['image'].split('/')
                         if t['updated'] == 'True':
-                            images[t['team_image_name']] = 'updated'
+                            images[t['image']] = 'updated'
                         else:
-                            images[t['team_image_name']] = 'old'
+                            images[t['image']] = 'old'
                     except IndexError:
                         print('Incorrectly specified image encountered. Format is {team_repo/team_image}')
                         continue
@@ -100,8 +100,8 @@ class Teams:
     def get_ranking(self):
         table = self.db[self.table].all()
 
-        if not len(list(table)):
-            print("ERROR! It this is the first run make sure that DB is initialized")
+        if not list(table):
+            print("ERROR retrieving rankings! It this is the first run make sure that DB is initialized")
             return [], "", 0
         table = self.db[self.table].all()
         for team in table:
@@ -111,7 +111,7 @@ class Teams:
                 return self.db[self.table].all(), "", 0
 
         #precision problem in MySQL. reserver word
-        # query = '''SELECT name, team_image_name,
+        # query = '''SELECT name, image,
         #             accuracy, recall,
         #             scenes, runtime,updated FROM %s ORDER BY accuracy DESC'''% self.table_name
         query = '''SELECT * FROM %s ORDER BY accuracy DESC'''% self.table
