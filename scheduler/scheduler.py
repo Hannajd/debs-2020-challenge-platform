@@ -7,7 +7,7 @@ import time
 import requests
 
 SCHEDULE_ENDPOINT = '/schedule'
-SCHEDULING_FREQUENCY_SECONDS = int(os.getenv("SCHEDULER_SLEEP_TIME", default=60))
+CRAWL_DOCKERHUB_FREQUENCY_SECONDS = int(os.getenv("CRAWL_DOCKERHUB_FREQUENCY_SECONDS", default=60))
 LOG_FOLDER = "scheduler_logs"
 LOG_FILE = 'scheduler.log'
 os.makedirs(LOG_FOLDER, exist_ok=True)
@@ -119,4 +119,4 @@ if __name__ == '__main__':
         else:
             logging.info("Images weren't updated yet. Idling...")
 
-        time.sleep(SCHEDULING_FREQUENCY_SECONDS)
+        time.sleep(CRAWL_DOCKERHUB_FREQUENCY_SECONDS)
