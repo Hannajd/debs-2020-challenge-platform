@@ -151,7 +151,7 @@ def index():
 
 @app.route('/score/<image_namespace>/<image_name>', methods=['GET'])
 def team_score(image_namespace, image_name):
-    image = image_namespace + '/' + image
+    image = image_namespace + '/' + image_name
     logging.debug("/score/%s route requested by IP address: %s ", image, request.remote_addr)
     return jsonify(TEAMS_DAO.get_team_data(image, SCORE_COLUMNS))
 
