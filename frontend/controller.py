@@ -36,6 +36,7 @@ logging.basicConfig(
                     ])
 
 # Init state
+MIN_WAIT_TIME_SECONDS = 60
 DELTA = datetime.timedelta(minutes=10) # average waiting time initial
 CYCLE_TIME = datetime.timedelta(minutes=10)
 UPDATE_TIME = datetime.datetime.utcnow()
@@ -45,6 +46,7 @@ SCORE_COLUMNS = ['total_runtime', 'latency', 'accuracy', 'timeliness']
 MANAGER_URI = os.getenv("REMOTE_MANAGER_SERVER").split(",")
 SCHEDULER_URI = find_container_ip_addr(os.getenv("SCHEDULER_IP"))
 ALLOWED_HOSTS = [MANAGER_URI, SCHEDULER_URI]
+SANITY_CHECK_FIELD = SCORE_COLUMNS[0]
 logging.debug("Allowed hosts are: %s", ALLOWED_HOSTS)
 
 # The table storing the info for each team, including image, latest scores, etc
@@ -100,7 +102,7 @@ def get_ranking_fields(row):
 
 def update_waiting_time(seconds):
     global DELTA
-    if seconds >= 60:  # minimum waiting time in minutes
+    if seconds >= MIN_WAIT_TIME_SECONDS:
         DELTA = datetime.timedelta(minutes=seconds/60)
 
 
@@ -116,22 +118,17 @@ def unconvert_time(s):
 # --- ROUTES ----
 @app.route('/result', methods=['POST'])
 def post_result():
-    #TODO: Update
+    global CYCLE_TIME
     if (request.remote_addr in ALLOWED_HOSTS) or request.remote_addr.startswith( '172', 0, 4 ):
         jsonData = request.json
         team = jsonData.get('image')
-        if TEAM_STATUS.get(team, None):
-            TEAM_STATUS[team] = ""
-
+        TEAM_STATUS[team] = '' # Clear team status
         logging.info("Received result: %s", jsonData)
-        # accuracy = data.get('accuracy')
-        # if not accuracy:
-        #     return jsonify({"message":"Bad request"}), 400
-        global CYCLE_TIME
+        if not jsonData.get(SANITY_CHECK_FIELD, None):
+            return jsonify({"message":"Bad request"}), 400
         loop_time = jsonData.get('piggybacked_manager_timeout', CYCLE_TIME)
         CYCLE_TIME = datetime.timedelta(seconds=loop_time)
         # update database
-        # set all to False
         TEAMS_DAO.update_result(jsonData)
         return json.dumps(jsonData), 200
     else:
@@ -153,30 +150,18 @@ def index():
 def team_score(image_namespace, image_name):
     image = image_namespace + '/' + image_name
     logging.debug("/score/%s route requested by IP address: %s ", image, request.remote_addr)
-    return jsonify(TEAMS_DAO.get_team_data(image, SCORE_COLUMNS))
-
+    teamScore = TEAMS_DAO.get_team_data(image, SCORE_COLUMNS)
+    return jsonify(teamScore)
 
 @app.route('/status_update', methods=['GET', 'POST'])
 def status():
-    STATUS_FIELD = 'status_update'
     if (request.remote_addr in ALLOWED_HOSTS) or request.remote_addr.startswith( '172', 0, 4):
         if request.method == 'GET':
-            # testing
             return jsonify(TEAM_STATUS), 200
         if request.method == 'POST':
-            data = request.json
-            for team, status in data.items():
+            for team, status in request.json.items():
                 TEAM_STATUS[team] = status
             return jsonify(TEAM_STATUS), 200
-            # status = data.get(STATUS_FIELD)
-            # team = data.get('image')
-            # logging.info("got %s %s" % (team, status))
-            # if team:
-            #     team_status[team] = status
-            #     return jsonify(team_status), 200
-            # else:
-            #     return {"message":"Bad request"}, 400
-
     else:
         logging.warning(" %s is NOT allowed to post schedule" % request.remote_addr)
         return abort(403)
@@ -186,7 +171,6 @@ def status():
 #@jwt_required
 def add_teams():
     global UPDATE_TIME
-    # print(request.json)
     if session.get('access_token'):
         current_user = get_jwt_identity()
         decoded = decode_token(session['access_token'])
@@ -196,25 +180,23 @@ def add_teams():
         if request.method == 'GET':
             return render_template('team_form.html')
         if request.method == 'POST':
-            team = request.values.get('name', None) # Your form's
-            image = request.values.get('image', None) # input names
+            team = request.values.get('name', None) 
+            image = request.values.get('image', None)
             updated = request.values.get('updated')
             logging.info("Requested to add team %s with image %s and status: %s" % (team, image, updated))
             if not updated:
                 updated = "False"
             else:
-                updated = "True" # default form value is 'on'
+                updated = "True"
             try:
                 if not image:
                     return {"message": "Please provide image name"}, 500
                 image.split('/')[1]
             except IndexError:
                 return {"message": "Image name specified incorrectly"}, 500
-            #session['access_token'] = ""
             TEAMS_DAO.add_team(team, image, updated)
             logging.info("Added team %s with image %s and status: %s" % (team, image, updated))
             UPDATE_TIME = datetime.datetime.utcnow()
-            #response.json = jsonify({"Updated": {team:image +" "+ str(updated)}})
             return render_template('success.html'), 200
     else:
         return render_template('404.html'), 404
