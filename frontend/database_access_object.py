@@ -100,6 +100,13 @@ class Teams:
         sys.stdout.flush()
         return images
 
+    def get_team_data(self, image, columns):
+        table = self.db[self.table] 
+        teamData = table.find_one(image=image)
+        if not teamData:
+            return {}
+        return {k: v for (k, v) in teamData.items() if k in columns} 
+
     def get_ranking(self):
         '''Return a tuple (table, last_experiment_time, waiting_time), 
         where "table" is the team entries sorted on their score

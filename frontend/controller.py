@@ -41,6 +41,7 @@ CYCLE_TIME = datetime.timedelta(minutes=10)
 UPDATE_TIME = datetime.datetime.utcnow()
 
 SKIP_COLUMNS = ['image'] #TODO
+SCORE_COLUMNS = ['total_runtime', 'latency', 'accuracy', 'timeliness']
 MANAGER_URI = os.getenv("REMOTE_MANAGER_SERVER").split(",")
 SCHEDULER_URI = find_container_ip_addr(os.getenv("SCHEDULER_IP"))
 ALLOWED_HOSTS = [MANAGER_URI, SCHEDULER_URI]
@@ -140,13 +141,19 @@ def post_result():
 
 @app.route('/', methods=['GET'])
 def index():
-    logging.debug("INDEX route requested by IP address: %s " % request.remote_addr)
-
+    logging.debug("/ route requested by IP address: %s " % request.remote_addr)
     query, last_experiment_time, waiting_time = TEAMS_DAO.get_ranking()
     # logging.debug("Query: %s, last_experiment_time: %s, wait: %s" % (query, last_experiment_time, waiting_time))
     ranking, queue = generate_ranking_table(query, last_experiment_time, waiting_time)
     # logging.debug("Rankng: %s, Queue: %s" % (ranking,queue))
     return render_template('table.html', post=ranking, team=queue)
+
+
+@app.route('/score/<image_namespace>/<image_name>', methods=['GET'])
+def team_score(image_namespace, image_name):
+    image = image_namespace + '/' + image
+    logging.debug("/score/%s route requested by IP address: %s ", image, request.remote_addr)
+    return jsonify(TEAMS_DAO.get_team_data(image, SCORE_COLUMNS))
 
 
 @app.route('/status_update', methods=['GET', 'POST'])
