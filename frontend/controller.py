@@ -1,6 +1,7 @@
 import os
 import logging
 import json
+import re
 from flask import (
         Flask, jsonify,
         render_template, request, redirect, url_for, session, abort
@@ -11,16 +12,20 @@ import sys
 import datetime
 from flask_jwt_extended import JWTManager
 from flask_jwt_extended import (
-            create_access_token, create_refresh_token, get_jwt_identity, jwt_required, decode_token
+            create_access_token, decode_token
 )
 
-from security import authenticate, find_container_ip_addr
+from security import authenticate, identity, find_container_ip_addr
 from database_access_object import Teams
 
 # --- APP ---
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv("SECRET_APP_KEY")
-jwt = JWTManager(app)
+
+app.config['SECRET_KEY'] = os.getenv("SECRET_KEY")
+if app.config['SECRET_KEY'] == 'UNDEFINED':
+    raise ValueError('Please define SECRET_KEY!')
+
+JWTManager(app) # Needed to create and validate JWT tokens 
 
 # Init logging
 LOG_FOLDER_NAME = "frontend_logs"
@@ -84,7 +89,6 @@ def generate_ranking_table(result, last_run, time_to_wait):
                 "status": current_status
             }})
             marked_to_run += 1
-    sys.stdout.flush()
     return ranking, queue
 
 
@@ -140,9 +144,7 @@ def post_result():
 def index():
     logging.debug("/ route requested by IP address: %s " % request.remote_addr)
     query, last_experiment_time, waiting_time = TEAMS_DAO.get_ranking()
-    # logging.debug("Query: %s, last_experiment_time: %s, wait: %s" % (query, last_experiment_time, waiting_time))
     ranking, queue = generate_ranking_table(query, last_experiment_time, waiting_time)
-    # logging.debug("Rankng: %s, Queue: %s" % (ranking,queue))
     return render_template('table.html', post=ranking, team=queue)
 
 
@@ -168,38 +170,43 @@ def status():
 
 
 @app.route('/add_team', methods=['GET', 'POST'])
-#@jwt_required
 def add_teams():
     global UPDATE_TIME
-    if session.get('access_token'):
-        current_user = get_jwt_identity()
-        decoded = decode_token(session['access_token'])
-        # can additionally decode token to verify
-        # if not identity(decoded):
-        #     return render_template('404.html'), 404
-        if request.method == 'GET':
-            return render_template('team_form.html')
-        if request.method == 'POST':
-            team = request.values.get('name', None) 
-            image = request.values.get('image', None)
-            updated = request.values.get('updated')
-            logging.info("Requested to add team %s with image %s and status: %s" % (team, image, updated))
-            if not updated:
-                updated = "False"
-            else:
-                updated = "True"
-            try:
-                if not image:
-                    return {"message": "Please provide image name"}, 500
-                image.split('/')[1]
-            except IndexError:
-                return {"message": "Image name specified incorrectly"}, 500
-            TEAMS_DAO.add_team(team, image, updated)
-            logging.info("Added team %s with image %s and status: %s" % (team, image, updated))
-            UPDATE_TIME = datetime.datetime.utcnow()
-            return render_template('success.html'), 200
-    else:
+    access_token = session.get('access_token')
+
+    if not access_token:
+        return redirect(url_for('login'))
+
+    # Validate credentials
+    try:
+        payload = decode_token(access_token)
+        if not identity(payload):
+            # Identification failed
+            raise ValueError('Invalid identity!')
+    except:
+        logging.warn("Invalid access token at /add_team from IP: %s", request.remote_addr)
         return render_template('404.html'), 404
+
+    if request.method == 'GET':
+        return render_template('team_form.html')
+    if request.method == 'POST':
+        team = request.values.get('name')
+        image = request.values.get('image')
+        updated = str(bool(request.values.get('updated'))) # 'True' if checkbox set, otherwise 'False'
+        logging.info("Request to add team %s with image %s and status: %s", team, image, updated)
+        # Validate image
+        if not image:
+            return {"message": "No image name provided"}, 500
+        if not re.match(r'.+/.+', image):
+            return {"message": "Incorrect image format!"}, 500
+        try:
+            TEAMS_DAO.add_team(team, image, updated)
+            logging.info("Added team %s", team)
+        except Exception as e:
+            logging.error("Failed to add team %s with image %s and status %s: %s", team, image, updated, e)
+            return {"message": "Failed to add team!"}, 500 
+        UPDATE_TIME = datetime.datetime.utcnow()
+        return render_template('success.html'), 200
 
 
 @app.route('/login', methods=['GET', "POST"])
@@ -207,24 +214,18 @@ def login():
     if request.method == 'GET':
         return render_template('login.html')
     elif request.method == 'POST':
-        username = request.values.get('username', None) # Your form's
-        password = request.values.get('password', None) # input names
-        #print("U %s P %s " % (username, password))
+        username = request.values.get('username')
+        password = request.values.get('password')
         user = authenticate(username, password)
-        sys.stdout.flush()
         if not user:
+            logging.warn('Failed login attempt from IP: %s', request.remote_addr)
             return render_template('404.html'), 404
         access_token = create_access_token(identity=username, fresh=False)
         response = redirect(url_for('add_teams'))
-        #print("TOKEN:", access_token)
         session['access_token'] = access_token
-        headers = {
-        'Authorization': 'Bearer {}'.format(access_token),
-        "Content-Type": 'application/json'
-        }
         response.headers['Authorization'] = 'Bearer {}'.format(access_token)
         response.method = 'GET'
-        response.json = jsonify(data={"access_token":access_token})
+        response.json = jsonify(data={"access_token": access_token})
         return response
 
 
@@ -250,10 +251,7 @@ def post_schedule():
 
 @app.route('/schedule', methods=['GET'])
 def get_teams():
-    # logging.info("IP address: %s " % request.remote_addr)
-    # sys.stdout.flush()
     if (request.remote_addr in ALLOWED_HOSTS) or request.remote_addr.startswith( '172', 0, 4 ):
-        sys.stdout.flush()
         images = TEAMS_DAO.get_image_statuses()
         logging.info("sending schedule %s to component: %s" % (images, request.remote_addr))
         return json.dumps(images)
@@ -265,8 +263,8 @@ def get_teams():
 @app.before_request
 def make_session_permanent():
     session.permanent = True
-    sess_timeout = int(os.getenv("SESSION_TIMEOUT", default=60))
-    app.permanent_session_lifetime = datetime.timedelta(seconds=sess_timeout)
+    session_timeout_seconds = int(os.getenv("FLASK_SESSION_TIMEOUT_SECONDS", default=60))
+    app.permanent_session_lifetime = datetime.timedelta(seconds=session_timeout_seconds)
 
 
 if __name__ == '__main__':

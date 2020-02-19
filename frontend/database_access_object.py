@@ -37,18 +37,15 @@ class Teams:
       self.db = connect_to_db(table) 
 
     def add_team(self, name, image, status):
-        #FIXME
-        # Note! upsert wont work with 'name' field
         table = self.db[self.table]
         row = table.find_one(name=name)
         if row:
-            # print("Found entry", row)
+            print('Updating entry for team %s' % name)
             table.update(dict(name=name, image=image, updated=status), ['name'])
         else:
-            # print("Entry is new")
+            print('Inserting new entry for team %s' % name)
             table.insert(dict(name=name, image=image, updated=status))
             restart_scheduler(SCHEDULER_SERVICE_NAME)
-        sys.stdout.flush()
 
     def update_image(self, image_name, timestamp):
         table = self.db[self.table]
@@ -72,7 +69,7 @@ class Teams:
                 timeliness = result['timeliness'],
                 tag=result['tag'],
                 last_run=result['last_run'],
-                updated='False',
+                updated=str(False),
             ), ['image'])
             print("Result updated for image ", result['image'])
 
@@ -97,7 +94,6 @@ class Teams:
                     images[image] = 'old'
             else:
                 print('Ignoring team "%s": no image specified' % row['name'])
-        sys.stdout.flush()
         return images
 
     def get_team_data(self, image, columns):

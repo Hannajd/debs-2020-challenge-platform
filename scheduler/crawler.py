@@ -2,6 +2,7 @@ import requests
 import datetime
 import logging
 
+
 DOCKER_REGISTRY_V2 = 'https://hub.docker.com/v2/repositories'
 
 
