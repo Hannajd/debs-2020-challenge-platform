@@ -5,6 +5,7 @@ import os
 import sys
 import datetime
 import subprocess
+import logging
 
 # scheduler service name for restarting upon new entry
 SCHEDULER_SERVICE_NAME = "scheduler"
@@ -40,10 +41,10 @@ class Teams:
         table = self.db[self.table]
         row = table.find_one(name=name)
         if row:
-            print('Updating entry for team %s' % name)
+            logging.info('Updating entry for team %s' % name)
             table.update(dict(name=name, image=image, updated=status), ['name'])
         else:
-            print('Inserting new entry for team %s' % name)
+            logging.info('Inserting new entry for team %s' % name)
             table.insert(dict(name=name, image=image, updated=status))
             restart_scheduler(SCHEDULER_SERVICE_NAME)
 
@@ -54,10 +55,13 @@ class Teams:
     def update_result(self, result):
             '''
             image
+            --- Score ---
             total_runtime
             latency
             accuracy
             timeliness
+            --- Metadata ---
+            benchmark_runtime
             tag
             last_run
             '''
@@ -69,9 +73,10 @@ class Teams:
                 timeliness = result['timeliness'],
                 tag=result['tag'],
                 last_run=result['last_run'],
+                benchmark_runtime=result['benchmark_runtime'],
                 updated=str(False),
             ), ['image'])
-            print("Result updated for image ", result['image'])
+            logging.info("Result updated for image %s", result['image'])
 
     def get_image_statuses(self):
         '''Return dictionary of image -> status (updated/old) for all images in DB
@@ -85,7 +90,7 @@ class Teams:
                 try:
                     image.split('/')
                 except IndexError:
-                    print('Igoring image with incorrect format: "%s". Format is {team_repo/team_image}.' % image)
+                    logging.warn('Igoring image with incorrect format: "%s". Format is {team_repo/team_image}.' % image)
                     continue
                 # Populate dict
                 if row['updated'] == 'True':
@@ -93,7 +98,7 @@ class Teams:
                 else:
                     images[image] = 'old'
             else:
-                print('Ignoring team "%s": no image specified' % row['name'])
+                logging.info('Ignoring team "%s": no image specified', row['name'])
         return images
 
     def get_team_data(self, image, columns):
@@ -107,40 +112,53 @@ class Teams:
         '''Return a tuple (table, last_experiment_time, waiting_time), 
         where "table" is the team entries sorted on their score
         '''
-        #TODO: Reimplement
-        return self.db[self.table].all(), "", 0
-        table = self.db[self.table].all()
-        if not list(table):
-            print("Failed to retrieve rankings! It this is the first run make sure that DB is initialized")
-            return [], "", 0
-        table = self.db[self.table].all()
-        for team in table:
-            #FIXME
-            try:
-                team['total_runtime']
-            except KeyError:
-                return self.db[self.table].all(), "", 0
+        teams_unranked = self.db[self.table].all()
+        failover_ranking = (teams_unranked, "", 0)
+        if not self.verify_schema(teams_unranked, 'total_runtime'):
+            logging.error("Database schema verification failed! It this is the first run make sure that DB is initialized")
+            return failover_ranking
 
-        #precision problem in MySQL. reserver word
-        # query = '''SELECT name, image,
-        #             accuracy, recall,
-        #             scenes, runtime,updated FROM %s ORDER BY accuracy DESC'''% self.table_name
-        query = '''SELECT * FROM %s ORDER BY accuracy DESC'''% self.table
-        ranking = self.db.query(query)
-        query2 = '''SELECT last_run FROM %s WHERE last_run = (SELECT MAX(last_run) FROM %s)'''% (self.table,self.table)
+        ranking_query = '''SELECT *, (R.rank_total_runtime+R.rank_latency+R.rank_timeliness+R.rank_accuracy) as total_rank FROM 
+            %s AS T INNER JOIN 
+                (SELECT id, 
+                dense_rank() OVER (ORDER BY IFNULL(total_runtime, 1E10) ASC) AS rank_total_runtime,
+                dense_rank() OVER (ORDER BY IFNULL(latency, 1E10) ASC) AS rank_latency,
+                dense_rank() OVER (ORDER BY IFNULL(timeliness, 0) DESC) AS rank_timeliness,
+                dense_rank() OVER (ORDER BY IFNULL(latency, 1E10) ASC) AS rank_accuracy
+                FROM %s) AS R
+                ON T.id = R.id
+            ORDER BY total_rank ASC
+                ''' % (self.table, self.table)
+        last_experiment_time_query = 'SELECT MAX(last_run) AS result FROM %s' % self.table
+        max_runtime_query = 'SELECT MAX(benchmark_runtime) AS result FROM %s' % self.table
         try:
-            last_experiment_time = 0
-            for row in self.db.query(query2):
-                last_experiment_time = row['last_run']
-            query3 = '''SELECT runtime FROM %s WHERE runtime = (SELECT MAX(runtime) FROM %s)'''% (self.table,self.table)
-            max_runtime = 0
-            for row in self.db.query(query3):
-                max_runtime = row['runtime']
+            ranking = self.db.query(ranking_query)
+        except Exception as e:
+            logging.error("Failed to retrieve rankings. If this is the first run make sure that DB is initialized: %s", e)
+            return failover_ranking
+        last_experiment_time = self.single_result_or_default(last_experiment_time_query, 'result', 0)
+        max_runtime = self.single_result_or_default(max_runtime_query, 'result', 0)
+        return (ranking, last_experiment_time, max_runtime)
 
-            return ranking, last_experiment_time, max_runtime
-        except (pymysql.ProgrammingError, pymysql.err.ProgrammingError):
-            print("If this is the first run make sure that DB is initialized")
-            return [], "", 0
-        except pymysql.InternalError as e:
-            print(e)
-            return ranking, datetime.datetime.utcnow(), 0
+    def verify_schema(self, table, test_column):
+        if not list(table):
+            return False
+        for team in table:
+            try:
+                team[test_column]
+            except KeyError:
+                return False
+        return True
+
+    def single_result_or_default(self, query, column, default, *_clauses, **kwargs):
+        result = default
+        try:
+            rows = self.db.query(query, *_clauses, **kwargs)
+            for i, row in enumerate(rows):
+                result = row[column]
+            if i > 1:
+                raise ValueError('query "%s" returned multiple results!')
+            return result
+        except Exception as e:
+            logging.error("Failed to execute '%s' metadata: %s", query, e)
+            return default

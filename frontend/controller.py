@@ -48,7 +48,7 @@ UPDATE_TIME = datetime.datetime.utcnow()
 
 SKIP_COLUMNS = ['image'] #TODO
 SCORE_COLUMNS = ['total_runtime', 'latency', 'accuracy', 'timeliness']
-MANAGER_URI = os.getenv("REMOTE_MANAGER_SERVER").split(",")
+MANAGER_URI = os.getenv("REMOTE_MANAGER_SERVER")
 SCHEDULER_URI = find_container_ip_addr(os.getenv("SCHEDULER_IP"))
 ALLOWED_HOSTS = [MANAGER_URI, SCHEDULER_URI]
 SANITY_CHECK_FIELD = SCORE_COLUMNS[0]
@@ -78,7 +78,6 @@ def generate_ranking_table(result, last_run, time_to_wait):
     else:
         time = UPDATE_TIME + DELTA + CYCLE_TIME
     marked_to_run = 0
-    time_to_wait = 0
     for rowIdx, row in enumerate(result):
         ranking[rowIdx+1] = get_ranking_fields(row)
         image = row.get('image', None)
@@ -89,6 +88,7 @@ def generate_ranking_table(result, last_run, time_to_wait):
                 "status": current_status
             }})
             marked_to_run += 1
+    logging.info(ranking)
     return ranking, queue
 
 
@@ -193,7 +193,7 @@ def add_teams():
         team = request.values.get('name')
         image = request.values.get('image')
         updated = str(bool(request.values.get('updated'))) # 'True' if checkbox set, otherwise 'False'
-        logging.info("Request to add team %s with image %s and status: %s", team, image, updated)
+        logging.info("Request to add team %s with image %s and status %s", team, image, updated)
         # Validate image
         if not image:
             return {"message": "No image name provided"}, 500
