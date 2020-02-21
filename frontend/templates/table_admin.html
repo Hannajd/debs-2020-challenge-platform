@@ -9,6 +9,10 @@
      <th scope="col">#</th>
      <th scope="col">Total Rank</th>
      <th scope="col">Team Name</th>
+     <th scope="col">Total Runtime</th>
+     <th scope="col">Latency</th>
+     <th scope="col">Timeliness</th>
+     <th scope="col">Accuracy</th>
      <th scope="col">Total Runtime Rank</th>
      <th scope="col">Latency Rank</th>
      <th scope="col">Timeliness Rank</th>
@@ -23,6 +27,10 @@
       <td scope="row">{{ loop.index }}</td>
       <td scope="row">{{ value['total_rank'] }}</td>
       <td scope="row">{{ value['name'] }}</td>
+      <td scope="row">{{ (value.get('total_runtime', 'nan'))|float|round(4)}}</td>
+      <td scope="row">{{ (value.get('latency', 'nan'))|float|round(4)}}</td>
+      <td scope="row">{{ (value.get('timeliness', 'nan'))|float|round(4)}}</td>
+      <td scope="row">{{ (value.get('accuracy', 'nan'))|float|round(4)}}</td>
       <td scope="row">{{ value['rank_total_runtime'] }}</td>
       <td scope="row">{{ value['rank_latency'] }}</td>
       <td scope="row">{{ value['rank_timeliness'] }}</td>

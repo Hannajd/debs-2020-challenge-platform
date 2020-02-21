@@ -46,8 +46,12 @@ DELTA = datetime.timedelta(minutes=10) # average waiting time initial
 CYCLE_TIME = datetime.timedelta(minutes=10)
 UPDATE_TIME = datetime.datetime.utcnow()
 
-SKIP_COLUMNS = ['image'] #TODO
+# The columns containing the actual user score
 SCORE_COLUMNS = ['total_runtime', 'latency', 'accuracy', 'timeliness']
+# Columns that are not to be displayed on the public scoreboard
+USER_EXCLUDE_COLUMNS = ['image'] + SCORE_COLUMNS
+# Time columns which need to be formatted for presentation
+FORMAT_TIME_COLUMNS = ['last_run', 'time_tag']
 MANAGER_URI = os.getenv("REMOTE_MANAGER_SERVER")
 SCHEDULER_URI = find_container_ip_addr(os.getenv("SCHEDULER_IP"))
 ALLOWED_HOSTS = [MANAGER_URI, SCHEDULER_URI]
@@ -63,7 +67,7 @@ TEAMS_DAO = Teams('teams')
 TEAM_STATUS = {} 
 
 
-def generate_ranking_table(result, last_run, time_to_wait):
+def generate_ranking_table(result, last_run, time_to_wait, skip_columns=[]):
     ranking = {}
     queue = []
     time = 0
@@ -79,7 +83,7 @@ def generate_ranking_table(result, last_run, time_to_wait):
         time = UPDATE_TIME + DELTA + CYCLE_TIME
     marked_to_run = 0
     for rowIdx, row in enumerate(result):
-        ranking[rowIdx+1] = get_ranking_fields(row)
+        ranking[rowIdx+1] = get_ranking_fields(row, skip_columns=[])
         image = row.get('image', None)
         current_status = TEAM_STATUS.get(image, "") if image else ""
         if row.get('updated', None)  == "True" and time:
@@ -88,18 +92,20 @@ def generate_ranking_table(result, last_run, time_to_wait):
                 "status": current_status
             }})
             marked_to_run += 1
-    logging.info(ranking)
     return ranking, queue
 
 
-def get_ranking_fields(row):
+def get_ranking_fields(row, skip_columns=[]):
+    '''Retrun the given row with the skip_columns removed and the time columns reformatted
+    '''
     new_row = {}
     for column, value in row.items():
-        if column in SKIP_COLUMNS:
+        if column in skip_columns:
             continue
-        elif column == 'last_run' and value:
-            new_row[column] = datetime.datetime.strptime(value, '%Y-%m-%dT%H:%M:%S')
-        else:
+        elif column in FORMAT_TIME_COLUMNS:
+            new_row[column] = datetime.datetime.strptime(value, '%Y-%m-%dT%H:%M:%S') if value else '-'
+        elif value != None:
+            # Ignore None values to make formatting easier in the HTML template
             new_row[column] = value
     return new_row
 
@@ -117,6 +123,20 @@ def round_time(tm):
 
 def unconvert_time(s):
     return s.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def check_auth(session):
+    access_token = session.get('access_token')
+    if not access_token:
+        return False
+    try:
+        payload = decode_token(access_token)
+        if not identity(payload):
+            return False
+    except:
+        logging.warn("Invalid access token from IP: %s", request.remote_addr)
+        return False
+    return True
 
 
 # --- ROUTES ----
@@ -142,21 +162,37 @@ def post_result():
 
 @app.route('/', methods=['GET'])
 def index():
+    '''User facing score table'''
     logging.debug("/ route requested by IP address: %s " % request.remote_addr)
     query, last_experiment_time, waiting_time = TEAMS_DAO.get_ranking()
+    ranking, queue = generate_ranking_table(query, last_experiment_time, waiting_time, USER_EXCLUDE_COLUMNS)
+    return render_template('table.html', ranking=ranking, queue=queue)
+
+
+@app.route('/scores', methods=['GET'])
+def scores():
+    '''Admin score table with extra attributes'''
+    logging.debug("/scores route requested by IP address: %s " % request.remote_addr)
+    if not check_auth(session):
+        return redirect(url_for('login', next=request.url))
+    
+    query, last_experiment_time, waiting_time = TEAMS_DAO.get_ranking()
     ranking, queue = generate_ranking_table(query, last_experiment_time, waiting_time)
-    return render_template('table.html', post=ranking, team=queue)
+    return render_template('table_admin.html', ranking=ranking, queue=queue)
 
 
 @app.route('/score/<image_namespace>/<image_name>', methods=['GET'])
 def team_score(image_namespace, image_name):
+    '''Score for a single team'''
     image = image_namespace + '/' + image_name
     logging.debug("/score/%s route requested by IP address: %s ", image, request.remote_addr)
     teamScore = TEAMS_DAO.get_team_data(image, SCORE_COLUMNS)
     return jsonify(teamScore)
 
+
 @app.route('/status_update', methods=['GET', 'POST'])
 def status():
+    '''Status update endpoint for scheduler'''
     if (request.remote_addr in ALLOWED_HOSTS) or request.remote_addr.startswith( '172', 0, 4):
         if request.method == 'GET':
             return jsonify(TEAM_STATUS), 200
@@ -171,21 +207,11 @@ def status():
 
 @app.route('/add_team', methods=['GET', 'POST'])
 def add_teams():
+    '''Admin intefacce for adding teams'''
     global UPDATE_TIME
-    access_token = session.get('access_token')
 
-    if not access_token:
-        return redirect(url_for('login'))
-
-    # Validate credentials
-    try:
-        payload = decode_token(access_token)
-        if not identity(payload):
-            # Identification failed
-            raise ValueError('Invalid identity!')
-    except:
-        logging.warn("Invalid access token at /add_team from IP: %s", request.remote_addr)
-        return render_template('404.html'), 404
+    if not check_auth(session):
+        return redirect(url_for('login', next=request.url))
 
     if request.method == 'GET':
         return render_template('team_form.html')
@@ -209,6 +235,8 @@ def add_teams():
         return render_template('success.html'), 200
 
 
+
+
 @app.route('/login', methods=['GET', "POST"])
 def login():
     if request.method == 'GET':
@@ -221,7 +249,7 @@ def login():
             logging.warn('Failed login attempt from IP: %s', request.remote_addr)
             return render_template('404.html'), 404
         access_token = create_access_token(identity=username, fresh=False)
-        response = redirect(url_for('add_teams'))
+        response = redirect(request.args.get('next') or url_for('index'))
         session['access_token'] = access_token
         response.headers['Authorization'] = 'Bearer {}'.format(access_token)
         response.method = 'GET'
