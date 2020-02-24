@@ -112,7 +112,7 @@ def get_ranking_fields(row, skip_columns=[]):
 
 def update_waiting_time(seconds):
     global DELTA
-    if seconds >= MIN_WAIT_TIME_SECONDS:
+    if seconds and seconds >= MIN_WAIT_TIME_SECONDS:
         DELTA = datetime.timedelta(minutes=seconds/60)
 
 
