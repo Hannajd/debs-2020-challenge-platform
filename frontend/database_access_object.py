@@ -6,6 +6,7 @@ import sys
 import datetime
 import subprocess
 import logging
+import math
 
 # scheduler service name for restarting upon new entry
 SCHEDULER_SERVICE_NAME = "scheduler"
@@ -67,16 +68,23 @@ class Teams:
             '''
             table = self.db[self.table]
             table.update(dict(image=result['image'],
-                total_runtime = result['total_runtime'],
-                latency = result['latency'],
-                accuracy = result['accuracy'],
-                timeliness = result['timeliness'],
+                total_runtime = self.fininte_or_none(result['total_runtime']),
+                latency = self.fininte_or_none(result['latency']),
+                accuracy = self.fininte_or_none(result['accuracy']),
+                timeliness = self.fininte_or_none(result['timeliness']),
                 tag=result['tag'],
                 last_run=result['last_run'],
                 benchmark_runtime=result['benchmark_runtime'],
                 updated=str(False),
             ), ['image'])
             logging.info("Result updated for image %s", result['image'])
+
+    def fininte_or_none(self, value):
+        try:
+            return value if math.isfinite(float(value)) else None
+        except Exception as e:
+            logging.error(e)
+            return None
 
     def get_image_statuses(self):
         '''Return dictionary of image -> status (updated/old) for all images in DB
