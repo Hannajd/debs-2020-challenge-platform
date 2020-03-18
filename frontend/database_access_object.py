@@ -132,7 +132,7 @@ class Teams:
                 dense_rank() OVER (ORDER BY IFNULL(total_runtime, 1E10) ASC) AS rank_total_runtime,
                 dense_rank() OVER (ORDER BY IFNULL(latency, 1E10) ASC) AS rank_latency,
                 dense_rank() OVER (ORDER BY IFNULL(timeliness, 0) DESC) AS rank_timeliness,
-                dense_rank() OVER (ORDER BY IFNULL(latency, 1E10) ASC) AS rank_accuracy
+                dense_rank() OVER (ORDER BY IFNULL(accuracy, 1E10) ASC) AS rank_accuracy
                 FROM %s) AS R
                 ON T.id = R.id
             ORDER BY total_rank ASC
