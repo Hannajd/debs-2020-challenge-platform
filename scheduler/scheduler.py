@@ -1,4 +1,5 @@
 import logging
+from logging.handlers import TimedRotatingFileHandler
 import os
 import json
 import datetime
@@ -15,7 +16,7 @@ logging.basicConfig(
                     level=logging.DEBUG,
                     format='%(asctime)s - %(name)s - %(threadName)s -  %(levelname)s - %(message)s',
                     handlers=[
-                     logging.FileHandler("%s/%s" % (LOG_FOLDER, LOG_FILE)),
+                     TimedRotatingFileHandler("%s/%s" % (LOG_FOLDER, LOG_FILE), when="midnight", interval=1), 
                      logging.StreamHandler()
                     ])
 

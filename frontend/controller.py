@@ -1,5 +1,6 @@
 import os
 import logging
+from logging.handlers import TimedRotatingFileHandler
 import json
 import re
 from flask import (
@@ -36,7 +37,7 @@ logging.basicConfig(
                     level=logging.DEBUG,
                     format='%(asctime)s - %(name)s - %(threadName)s -  %(levelname)s - %(message)s',
                     handlers=[
-                     logging.FileHandler("%s/%s" % (LOG_FOLDER_NAME, LOG_FILENAME)),
+                     TimedRotatingFileHandler("%s/%s" % (LOG_FOLDER_NAME, LOG_FILENAME), when="midnight", interval=1), 
                      logging.StreamHandler()
                     ])
 
